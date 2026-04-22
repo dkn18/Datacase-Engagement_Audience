@@ -7,28 +7,21 @@ DB_PATH = "events.db"
 API_URL = "https://api.github.com/repos/apache/airflow/events"
 THRESHOLD = 2
 
-
 def fetch_events():
     print("Fetching GitHub events...")
-
     headers = {
         "User-Agent": "pipeline",
         "Accept": "application/vnd.github+json"
     }
-
     try:
         r = requests.get(API_URL, headers=headers, timeout=10)
-
         if r.status_code == 403:
             print("Rate limit hit → empty dataset")
             return []
-
         return r.json()
-
     except Exception as e:
         print("API error:", e)
         return []
-
 
 def create_tables(conn):
     conn.execute("""
@@ -42,11 +35,9 @@ def create_tables(conn):
     )
     """)
 
-
 def load_events(conn, events):
     cur = conn.cursor()
-    inserted = 0
-
+    inserted = 0    
     for e in events:
         cur.execute("""
         INSERT OR IGNORE INTO raw_events VALUES (?, ?, ?, ?, ?, ?)
@@ -58,17 +49,13 @@ def load_events(conn, events):
             e.get("type"),
             json.dumps(e.get("payload"))
         ))
-
         if cur.rowcount > 0:
             inserted += 1
-
     conn.commit()
     return inserted
 
-
 def transform(conn):
     conn.execute("DROP TABLE IF EXISTS user_profile")
-
     conn.execute("""
     CREATE TABLE user_profile AS
     SELECT
@@ -80,15 +67,12 @@ def transform(conn):
     GROUP BY user_login
     """)
 
-
 def suppression(conn):
     df = pd.read_csv("suppression_list.csv")
     df.to_sql("suppression_list", conn, if_exists="replace", index=False)
 
-
 def audiences(conn):
     conn.execute("DROP TABLE IF EXISTS high_intent")
-
     conn.execute(f"""
     CREATE TABLE high_intent AS
     SELECT u.user_login, u.events_last_7d
@@ -99,32 +83,23 @@ def audiences(conn):
     AND s.user_login IS NULL
     """)
 
-
 def summary(conn, inserted):
     cur = conn.cursor()
-
     print("\n--- SUMMARY ---")
     print("Inserted:", inserted)
     print("Users:", cur.execute("SELECT COUNT(DISTINCT user_login) FROM raw_events").fetchone()[0])
     print("High intent:", cur.execute("SELECT COUNT(*) FROM high_intent").fetchone()[0])
 
-
 def main():
     conn = sqlite3.connect(DB_PATH)
-
     create_tables(conn)
-
     events = fetch_events()
     inserted = load_events(conn, events)
-
     transform(conn)
     suppression(conn)
     audiences(conn)
-
     summary(conn, inserted)
-
     conn.close()
-
 
 if __name__ == "__main__":
     main()

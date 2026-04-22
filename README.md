@@ -30,3 +30,6 @@ This provides real-time engagement data like pushes, pull requests, and comments
 
 ```bash
 pip install -r requirements.txt
+
+
+Note : SQLite is used as a lightweight embedded database. The database file is created automatically at runtime, ensuring portability and zero setup overhead.

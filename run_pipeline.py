@@ -119,7 +119,6 @@ def build_audiences(conn):
 
     cursor = conn.cursor()
 
-    # 🔥 FIX: realistic threshold for small GitHub dataset
     HIGH_INTENT_THRESHOLD = 2
 
     cursor.execute("DROP TABLE IF EXISTS aud_high_intent_users")
@@ -154,7 +153,26 @@ def build_audiences(conn):
 
 
 # -----------------------
-# SUMMARY OUTPUT
+# EXPORT OUTPUT FILES (NEW)
+# -----------------------
+def export_outputs(conn):
+    print("Exporting final CSV outputs...")
+
+    df1 = pd.read_sql_query("""
+        SELECT * FROM aud_high_intent_users
+    """, conn)
+
+    df1.to_csv("high_intent_users.csv", index=False)
+
+    df2 = pd.read_sql_query("""
+        SELECT * FROM aud_newly_engaged_users
+    """, conn)
+
+    df2.to_csv("newly_engaged_users.csv", index=False)
+
+
+# -----------------------
+# SUMMARY
 # -----------------------
 def print_summary(conn, inserted):
     cursor = conn.cursor()
@@ -194,6 +212,8 @@ def main():
     run_transformations(conn)
     load_suppression(conn)
     build_audiences(conn)
+
+    export_outputs(conn)  # ✅ NEW STEP ADDED
 
     print_summary(conn, inserted)
 

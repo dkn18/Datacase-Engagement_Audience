@@ -8,7 +8,7 @@ API_URL = "https://api.github.com/repos/apache/airflow/events"
 
 
 # -----------------------
-# CREATE TABLE
+# CREATE TABLES
 # -----------------------
 def create_tables(conn):
     conn.execute("""
@@ -37,7 +37,7 @@ def fetch_events():
 # INSERT EVENTS (IDEMPOTENT)
 # -----------------------
 def insert_events(conn, events):
-    print("Inserting events into SQLite...")
+    print("Inserting events...")
 
     cursor = conn.cursor()
     inserted = 0
@@ -102,7 +102,7 @@ def run_transformations(conn):
 
 
 # -----------------------
-# SUPPRESSION
+# SUPPRESSION LIST
 # -----------------------
 def load_suppression(conn):
     print("Loading suppression list...")
@@ -119,10 +119,11 @@ def build_audiences(conn):
 
     cursor = conn.cursor()
 
-    cursor.execute("DROP TABLE IF EXISTS aud_high_intent_users")
+    # 🔥 FIX: realistic threshold for small GitHub dataset
+    HIGH_INTENT_THRESHOLD = 2
 
-    # 🔥 FIX: lowered threshold for small dataset
-    cursor.execute("""
+    cursor.execute("DROP TABLE IF EXISTS aud_high_intent_users")
+    cursor.execute(f"""
     CREATE TABLE aud_high_intent_users AS
     SELECT 
         u.user_login,
@@ -131,7 +132,7 @@ def build_audiences(conn):
     FROM user_profile u
     LEFT JOIN suppression_list s
         ON u.user_login = s.user_login
-    WHERE u.events_last_7d >= 3
+    WHERE u.events_last_7d >= {HIGH_INTENT_THRESHOLD}
       AND s.user_login IS NULL
     """)
 
@@ -153,7 +154,7 @@ def build_audiences(conn):
 
 
 # -----------------------
-# SUMMARY
+# SUMMARY OUTPUT
 # -----------------------
 def print_summary(conn, inserted):
     cursor = conn.cursor()

@@ -24,7 +24,7 @@ def create_tables(conn):
 
 
 # -----------------------
-# FETCH EVENTS (SAFE + NO CRASH)
+# FETCH EVENTS (SAFE)
 # -----------------------
 def fetch_events():
     print("Fetching GitHub events...")
@@ -37,16 +37,16 @@ def fetch_events():
     try:
         response = requests.get(API_URL, headers=headers, timeout=10)
 
-        # Handle rate limit gracefully
+        # Handle rate limit safely
         if response.status_code == 403:
-            print("⚠️ Rate limit hit. Continuing with empty dataset (safe fallback).")
+            print("⚠️ Rate limit hit. Using empty dataset (safe fallback).")
             return []
 
         response.raise_for_status()
         return response.json()
 
     except Exception as e:
-        print(f"⚠️ API error: {e}. Continuing safely with empty dataset.")
+        print(f"⚠️ API error: {e}. Using empty dataset fallback.")
         return []
 
 
@@ -93,8 +93,8 @@ def run_transformations(conn):
     CREATE TABLE user_daily_engagement AS
     SELECT 
         user_login,
-        DATE(event_ts) as dt,
-        COUNT(*) as events_count
+        DATE(event_ts) AS dt,
+        COUNT(*) AS events_count
     FROM raw_events
     GROUP BY user_login, DATE(event_ts)
     """)
@@ -104,9 +104,9 @@ def run_transformations(conn):
     CREATE TABLE user_profile AS
     SELECT 
         user_login,
-        MIN(event_ts) as first_seen_ts,
-        MAX(event_ts) as last_seen_ts,
-        COUNT(*) as events_last_7d
+        MIN(event_ts) AS first_seen_ts,
+        MAX(event_ts) AS last_seen_ts,
+        COUNT(*) AS events_last_7d
     FROM raw_events
     GROUP BY user_login
     """)
@@ -115,7 +115,7 @@ def run_transformations(conn):
 
 
 # -----------------------
-# SUPPRESSION LIST
+# SUPPRESSION
 # -----------------------
 def load_suppression(conn):
     df = pd.read_csv("suppression_list.csv")
@@ -135,7 +135,7 @@ def build_audiences(conn):
     CREATE TABLE aud_high_intent_users AS
     SELECT 
         u.user_login,
-        DATETIME('now') as computed_at,
+        DATETIME('now') AS computed_at,
         u.events_last_7d
     FROM user_profile u
     LEFT JOIN suppression_list s
@@ -149,7 +149,7 @@ def build_audiences(conn):
     CREATE TABLE aud_newly_engaged_users AS
     SELECT 
         u.user_login,
-        DATETIME('now') as computed_at,
+        DATETIME('now') AS computed_at,
         u.first_seen_ts
     FROM user_profile u
     LEFT JOIN suppression_list s
@@ -162,18 +162,20 @@ def build_audiences(conn):
 
 
 # -----------------------
-# EXPORT OUTPUTS (CSV)
+# EXPORT OUTPUT FILES
 # -----------------------
 def export_outputs(conn):
     print("Exporting CSV outputs...")
 
-    pd.read_sql_query(
-        "SELECT * FROM aud_high_intent_users", conn
-    ).to_csv("high_intent_users.csv", index=False)
+    df1 = pd.read_sql_query("SELECT * FROM aud_high_intent_users", conn)
+    df2 = pd.read_sql_query("SELECT * FROM aud_newly_engaged_users", conn)
 
-    pd.read_sql_query(
-        "SELECT * FROM aud_newly_engaged_users", conn
-    ).to_csv("newly_engaged_users.csv", index=False)
+    df1.to_csv("high_intent_users.csv", index=False)
+    df2.to_csv("newly_engaged_users.csv", index=False)
+
+    print("CSV files created:")
+    print("- high_intent_users.csv")
+    print("- newly_engaged_users.csv")
 
 
 # -----------------------
@@ -182,17 +184,12 @@ def export_outputs(conn):
 def print_summary(conn, inserted):
     cursor = conn.cursor()
 
-    total_events = cursor.execute("SELECT COUNT(*) FROM raw_events").fetchone()[0]
-    distinct_users = cursor.execute("SELECT COUNT(DISTINCT user_login) FROM raw_events").fetchone()[0]
-    high_intent = cursor.execute("SELECT COUNT(*) FROM aud_high_intent_users").fetchone()[0]
-    new_users = cursor.execute("SELECT COUNT(*) FROM aud_newly_engaged_users").fetchone()[0]
-
     print("\n--- PIPELINE SUMMARY ---")
     print(f"New events inserted: {inserted}")
-    print(f"Total events: {total_events}")
-    print(f"Distinct users: {distinct_users}")
-    print(f"High intent users: {high_intent}")
-    print(f"New users: {new_users}")
+    print(f"Total events: {cursor.execute('SELECT COUNT(*) FROM raw_events').fetchone()[0]}")
+    print(f"Distinct users: {cursor.execute('SELECT COUNT(DISTINCT user_login) FROM raw_events').fetchone()[0]}")
+    print(f"High intent users: {cursor.execute('SELECT COUNT(*) FROM aud_high_intent_users').fetchone()[0]}")
+    print(f"New users: {cursor.execute('SELECT COUNT(*) FROM aud_newly_engaged_users').fetchone()[0]}")
 
     print("\nSample High Intent Users:")
     for row in cursor.execute("SELECT user_login FROM aud_high_intent_users LIMIT 10"):

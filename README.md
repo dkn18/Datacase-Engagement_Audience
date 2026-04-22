@@ -33,3 +33,10 @@ pip install -r requirements.txt
 
 
 Note : SQLite is used as a lightweight embedded database. The database file is created automatically at runtime, ensuring portability and zero setup overhead.
+
+## Data Note
+
+The GitHub Public Events API returns a limited number of recent events.
+Because of this, audience sizes may vary depending on repository activity at runtime.
+
+To ensure meaningful results for small datasets, the high-intent threshold has been tuned to a lower value.

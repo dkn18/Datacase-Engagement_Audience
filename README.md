@@ -3,3 +3,30 @@ End-to-end data pipeline that ingests GitHub public events, transforms them into
 
 Goal :
 To demonstrate practical data engineering skills in building a simple, production-style pipeline under time constraints, focusing on correctness, idempotency, and clean design.
+
+# MarTech Audience Pipeline
+
+## Overview
+This project builds a simple end-to-end data pipeline that converts engagement events into activation-ready audiences.
+
+It:
+- Fetches GitHub events
+- Stores them in SQLite
+- Transforms data into analytics tables
+- Applies suppression rules
+- Generates marketing audiences
+
+---
+
+## Data Source
+Uses the GitHub Public Events API for:
+apache/airflow
+
+This provides real-time engagement data like pushes, pull requests, and comments.
+
+---
+
+## Setup
+
+```bash
+pip install -r requirements.txt

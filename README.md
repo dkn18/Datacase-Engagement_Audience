@@ -120,3 +120,13 @@ Focus on simplicity + reproducibility
 ✅ Summary
 
 Lightweight end-to-end MarTech pipeline that transforms raw GitHub events into actionable user segments using a clean, idempotent, production-style design.
+
+### Validation Steps
+
+You can validate the pipeline manually using SQLite:
+
+```bash
+sqlite3 events.db
+.read queries.sql
+SELECT COUNT(*) FROM raw_events;
+SELECT * FROM aud_high_intent_users LIMIT 10;

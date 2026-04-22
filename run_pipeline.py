@@ -2,14 +2,13 @@ import requests
 import sqlite3
 import json
 import pandas as pd
-import time
 
 DB_PATH = "events.db"
 API_URL = "https://api.github.com/repos/apache/airflow/events"
 
 
 # -----------------------
-# TABLES
+# CREATE TABLES
 # -----------------------
 def create_tables(conn):
     conn.execute("""
@@ -25,7 +24,7 @@ def create_tables(conn):
 
 
 # -----------------------
-# FETCH EVENTS (ROBUST)
+# FETCH EVENTS (SAFE + NO CRASH)
 # -----------------------
 def fetch_events():
     print("Fetching GitHub events...")
@@ -35,29 +34,20 @@ def fetch_events():
         "Accept": "application/vnd.github+json"
     }
 
-    max_retries = 3
-    wait_time = 5
+    try:
+        response = requests.get(API_URL, headers=headers, timeout=10)
 
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(API_URL, headers=headers, timeout=10)
+        # Handle rate limit gracefully
+        if response.status_code == 403:
+            print("⚠️ Rate limit hit. Continuing with empty dataset (safe fallback).")
+            return []
 
-            if response.status_code == 403:
-                print(f"Rate limit hit. Retry {attempt+1}/{max_retries}")
-                time.sleep(wait_time)
-                wait_time *= 2
-                continue
+        response.raise_for_status()
+        return response.json()
 
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.RequestException as e:
-            print(f"API error: {e}. Retry {attempt+1}/{max_retries}")
-            time.sleep(wait_time)
-            wait_time *= 2
-
-    print("API failed after retries. Using empty dataset fallback.")
-    return []
+    except Exception as e:
+        print(f"⚠️ API error: {e}. Continuing safely with empty dataset.")
+        return []
 
 
 # -----------------------
@@ -93,7 +83,7 @@ def insert_events(conn, events):
 
 
 # -----------------------
-# TRANSFORM
+# TRANSFORMATIONS
 # -----------------------
 def run_transformations(conn):
     cursor = conn.cursor()
@@ -101,7 +91,10 @@ def run_transformations(conn):
     cursor.execute("DROP TABLE IF EXISTS user_daily_engagement")
     cursor.execute("""
     CREATE TABLE user_daily_engagement AS
-    SELECT user_login, DATE(event_ts) dt, COUNT(*) events_count
+    SELECT 
+        user_login,
+        DATE(event_ts) as dt,
+        COUNT(*) as events_count
     FROM raw_events
     GROUP BY user_login, DATE(event_ts)
     """)
@@ -111,9 +104,9 @@ def run_transformations(conn):
     CREATE TABLE user_profile AS
     SELECT 
         user_login,
-        MIN(event_ts) first_seen_ts,
-        MAX(event_ts) last_seen_ts,
-        COUNT(*) events_last_7d
+        MIN(event_ts) as first_seen_ts,
+        MAX(event_ts) as last_seen_ts,
+        COUNT(*) as events_last_7d
     FROM raw_events
     GROUP BY user_login
     """)
@@ -122,7 +115,7 @@ def run_transformations(conn):
 
 
 # -----------------------
-# SUPPRESSION
+# SUPPRESSION LIST
 # -----------------------
 def load_suppression(conn):
     df = pd.read_csv("suppression_list.csv")
@@ -140,7 +133,10 @@ def build_audiences(conn):
     cursor.execute("DROP TABLE IF EXISTS aud_high_intent_users")
     cursor.execute(f"""
     CREATE TABLE aud_high_intent_users AS
-    SELECT u.user_login, DATETIME('now') computed_at, u.events_last_7d
+    SELECT 
+        u.user_login,
+        DATETIME('now') as computed_at,
+        u.events_last_7d
     FROM user_profile u
     LEFT JOIN suppression_list s
         ON u.user_login = s.user_login
@@ -151,7 +147,10 @@ def build_audiences(conn):
     cursor.execute("DROP TABLE IF EXISTS aud_newly_engaged_users")
     cursor.execute("""
     CREATE TABLE aud_newly_engaged_users AS
-    SELECT u.user_login, DATETIME('now') computed_at, u.first_seen_ts
+    SELECT 
+        u.user_login,
+        DATETIME('now') as computed_at,
+        u.first_seen_ts
     FROM user_profile u
     LEFT JOIN suppression_list s
         ON u.user_login = s.user_login
@@ -163,16 +162,18 @@ def build_audiences(conn):
 
 
 # -----------------------
-# EXPORT OUTPUTS (CSV LAYER)
+# EXPORT OUTPUTS (CSV)
 # -----------------------
 def export_outputs(conn):
     print("Exporting CSV outputs...")
 
-    pd.read_sql("SELECT * FROM aud_high_intent_users", conn)\
-        .to_csv("high_intent_users.csv", index=False)
+    pd.read_sql_query(
+        "SELECT * FROM aud_high_intent_users", conn
+    ).to_csv("high_intent_users.csv", index=False)
 
-    pd.read_sql("SELECT * FROM aud_newly_engaged_users", conn)\
-        .to_csv("newly_engaged_users.csv", index=False)
+    pd.read_sql_query(
+        "SELECT * FROM aud_newly_engaged_users", conn
+    ).to_csv("newly_engaged_users.csv", index=False)
 
 
 # -----------------------
@@ -181,12 +182,17 @@ def export_outputs(conn):
 def print_summary(conn, inserted):
     cursor = conn.cursor()
 
+    total_events = cursor.execute("SELECT COUNT(*) FROM raw_events").fetchone()[0]
+    distinct_users = cursor.execute("SELECT COUNT(DISTINCT user_login) FROM raw_events").fetchone()[0]
+    high_intent = cursor.execute("SELECT COUNT(*) FROM aud_high_intent_users").fetchone()[0]
+    new_users = cursor.execute("SELECT COUNT(*) FROM aud_newly_engaged_users").fetchone()[0]
+
     print("\n--- PIPELINE SUMMARY ---")
     print(f"New events inserted: {inserted}")
-    print(f"Total events: {cursor.execute('SELECT COUNT(*) FROM raw_events').fetchone()[0]}")
-    print(f"Distinct users: {cursor.execute('SELECT COUNT(DISTINCT user_login) FROM raw_events').fetchone()[0]}")
-    print(f"High intent users: {cursor.execute('SELECT COUNT(*) FROM aud_high_intent_users').fetchone()[0]}")
-    print(f"New users: {cursor.execute('SELECT COUNT(*) FROM aud_newly_engaged_users').fetchone()[0]}")
+    print(f"Total events: {total_events}")
+    print(f"Distinct users: {distinct_users}")
+    print(f"High intent users: {high_intent}")
+    print(f"New users: {new_users}")
 
     print("\nSample High Intent Users:")
     for row in cursor.execute("SELECT user_login FROM aud_high_intent_users LIMIT 10"):

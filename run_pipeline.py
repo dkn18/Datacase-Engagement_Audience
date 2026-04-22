@@ -27,6 +27,7 @@ def create_tables(conn):
 # FETCH EVENTS
 # -----------------------
 def fetch_events():
+    print("Fetching GitHub events...")
     response = requests.get(API_URL)
     response.raise_for_status()
     return response.json()
@@ -36,6 +37,8 @@ def fetch_events():
 # INSERT EVENTS (IDEMPOTENT)
 # -----------------------
 def insert_events(conn, events):
+    print("Inserting events into SQLite...")
+
     cursor = conn.cursor()
     inserted = 0
 
@@ -68,6 +71,8 @@ def insert_events(conn, events):
 # TRANSFORMATIONS
 # -----------------------
 def run_transformations(conn):
+    print("Running transformations...")
+
     cursor = conn.cursor()
 
     cursor.execute("DROP TABLE IF EXISTS user_daily_engagement")
@@ -97,20 +102,26 @@ def run_transformations(conn):
 
 
 # -----------------------
-# LOAD SUPPRESSION LIST
+# SUPPRESSION
 # -----------------------
 def load_suppression(conn):
+    print("Loading suppression list...")
+
     df = pd.read_csv("suppression_list.csv")
     df.to_sql("suppression_list", conn, if_exists="replace", index=False)
 
 
 # -----------------------
-# BUILD AUDIENCES
+# AUDIENCES
 # -----------------------
 def build_audiences(conn):
+    print("Building audiences...")
+
     cursor = conn.cursor()
 
     cursor.execute("DROP TABLE IF EXISTS aud_high_intent_users")
+
+    # 🔥 FIX: lowered threshold for small dataset
     cursor.execute("""
     CREATE TABLE aud_high_intent_users AS
     SELECT 
@@ -120,7 +131,7 @@ def build_audiences(conn):
     FROM user_profile u
     LEFT JOIN suppression_list s
         ON u.user_login = s.user_login
-    WHERE u.events_last_7d >= 10
+    WHERE u.events_last_7d >= 3
       AND s.user_login IS NULL
     """)
 
@@ -142,7 +153,7 @@ def build_audiences(conn):
 
 
 # -----------------------
-# PRINT SUMMARY
+# SUMMARY
 # -----------------------
 def print_summary(conn, inserted):
     cursor = conn.cursor()
@@ -169,7 +180,7 @@ def print_summary(conn, inserted):
 
 
 # -----------------------
-# MAIN PIPELINE
+# MAIN
 # -----------------------
 def main():
     conn = sqlite3.connect(DB_PATH)
